@@ -250,7 +250,7 @@ select operation in "${operations[@]}"; do
         fi
 
         # Selecting the process
-        process_name=$(printf '%s\n' "${!process_name_arr[*]}" | fzf)
+        process_name=$(printf '%s\n' ${!process_name_arr[*]} | fzf)
         pts_num=$(fetch_process_name_arr "$process_name")
 
         if [[ -z "${process_name}" || -z "${pts_num}" ]]; then
