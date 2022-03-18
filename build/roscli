@@ -1,0 +1,36 @@
+#!/bin/bash
+
+int2b4() {
+    local val out
+    for ((val = $1; val; val /= 4)); do
+        out=$((val % 4))$out
+    done
+    echo -n "$out"
+}
+
+./layout-selector
+layout_index=$?
+
+if ((layout_index == 0)); then
+    exit 0
+fi
+
+((layout_index--))
+
+layout_code=(0 2 1 33 9 18 6 642 321 578 530 641 322 385 386)
+args="$(int2b4 ${layout_code[$layout_index]} | sed 's/./& /g')"
+./terminator-layout-generator $args | tee selectedlayout
+
+sleep 1
+sed -z 's/\[\[roscli[^(]*roscli//g' "${HOME}/.config/terminator/config" | tee ~/.config/terminator/config
+sleep 1
+if [ -s ~/.config/terminator/config ]; then
+    sed -e '/layouts/r selectedlayout' "${HOME}/.config/terminator/config" | tee ~/.config/terminator/config
+else
+    echo "[layouts]" >~/.config/terminator/config
+    tee --append ~/.config/terminator/config <selectedlayout
+fi
+sleep 0.5
+xdotool key Alt_L+l && sleep 0.5
+
+tmux new-session -d ./rostui \; split-window -v ./rosclip2 \; select-layout even-vertical \; attach-session
