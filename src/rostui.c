@@ -1,7 +1,6 @@
 #include <curses.h>
 #include <stdlib.h>
 #include <string.h>
-#include <menu.h>
 #include <fcntl.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -16,6 +15,7 @@ void message(WINDOW *win, char[]);
 
 void package(WINDOW *win, char[]);
 void pidttyname(WINDOW *win, char fname[]);
+void freepts(WINDOW *win, char fname[]);
 int doexit(char[]);
 
 void print_in_middle(WINDOW *win, int starty, int startx, int width, char *string, chtype color);
@@ -50,6 +50,10 @@ int main()
     char pidttyname_conf[2048];
     strcpy(pidttyname_conf, CONFIG_DIR);
     strcat(pidttyname_conf, "/pidttyname");
+
+    char freepts_conf[2048];
+    strcpy(freepts_conf, CONFIG_DIR);
+    strcat(freepts_conf, "/freepts");
 
     WINDOW *win[4];
     int i;
@@ -124,6 +128,7 @@ int main()
         package(win[1], package_conf);
         message(win[2], message_conf);
         pidttyname(win[3], pidttyname_conf);
+        freepts(win[3], freepts_conf);
         if (doexit(doexit_conf))
         {
             pid_t pid = fork();
@@ -348,6 +353,37 @@ void pidttyname(WINDOW *win, char fname[])
             c = fgetc(fptr);
             continue;
         }
+        mvwaddch(win, y, x++, c);
+        c = fgetc(fptr);
+    }
+    wattroff(win, COLOR_PAIR(4));
+    fclose(fptr);
+}
+
+void freepts(WINDOW *win, char fname[])
+{
+    int c, y = LINES -9, x = 1;
+
+    char msg[] = "Freepts: ";
+
+    wattron(win, COLOR_PAIR(3));
+    mvwprintw(win,y, 1, msg);
+    wattroff(win, COLOR_PAIR(3));
+
+    if (access(fname, F_OK) != 0)
+    {
+        return;
+    }
+    FILE *fptr = fopen(fname, "r");
+    if (fptr == NULL)
+    {
+        return;
+    }
+    x += strlen(msg);
+    c = fgetc(fptr);
+    wattron(win, COLOR_PAIR(4));
+    while (c != EOF && c != '\n')
+    {
         mvwaddch(win, y, x++, c);
         c = fgetc(fptr);
     }

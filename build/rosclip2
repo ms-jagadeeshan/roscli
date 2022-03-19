@@ -68,31 +68,86 @@ function fetch_process_name_arr() {
 }
 
 function message() {
-    echo -n "$@" >"${CONFIG_DIR}/message"
+    case $1 in
+    "-a")
+        echo -n $(echo "$@" | cat - "${CONFIG_DIR}/message") >"${CONFIG_DIR}/message"
+        ;;
+    *)
+        echo -n "$@" >"${CONFIG_DIR}/message"
+        ;;
+    esac
+
 }
 
 #Function to print pid - tty - name of current processes
 function printpidttyname() {
 
+    local process_name
     for process_name in ${!process_name_arr[*]}; do
         local pts=$(fetch_process_name_arr $process_name)
         echo "${pid_array[$pts]} - $pts - $process_name"
     done
 }
 
+# Check if all the process running or not
+pid_check() {
+    local pid cur_pts process_name pts
+    for pid in ${pid_array[@]}; do
+        if ps -p $pid >/dev/null; then
+            continue
+        fi
+        # Getting pts of the ended process
+        for cur_pts in "${!pid_array[@]}"; do
+            if [[ "${pid_array[$cur_pts]}" = "${pid}" ]]; then
+                break
+            fi
+        done
+
+        message "Process '$pid' stopped running!"
+
+        # Getting process name of the stopped process
+        for process_name in ${!process_name_arr[*]}; do
+            pts=$(fetch_process_name_arr $process_name)
+            if [[ "${pts}" == "${cur_pts}" ]]; then
+
+                # Unsetting the stopped process info
+                eval "unset \"process_name_arr[$process_name]\""
+                eval "unset \"pid_array[${cur_pts}]\""
+                sudo ttyecho -n /dev/pts/${cur_pts} "clear"
+
+                # Updating available pts
+                available_pts+=(${cur_pts})
+                available_pts_size=${#available_pts[@]}
+                printpidttyname >"${CONFIG_DIR}/pidttyname"
+            fi
+        done
+    done
+    echo -n "${available_pts[@]}" >"${CONFIG_DIR}/freepts"
+}
+
 roscli_exit() {
 
     # Safety check
+    pid_check
+
     if ((${#pid_array[@]} != 0)); then
         kill -2 ${pid_array[@]}
         message "Waiting for processes to stop....."
+
+        # Updating the available pts
+        for pts in "${!pid_array[*]}"; do
+            pts_num=$pts
+            available_pts+=(${pts_num})
+        done
         sleep 5
     fi
 
     echo -n "1" >"${CONFIG_DIR}/doexit"
     sleep 2.1
     runinall "exit"
-    rm -f "${CONFIG_DIR}/message" "${CONFIG_DIR}/buildstatus" "${CONFIG_DIR}/package" "${CONFIG_DIR}/doexit" "${CONFIG_DIR}/pidttyname"
+    rm -f "${CONFIG_DIR}/message" "${CONFIG_DIR}/freepts" "${CONFIG_DIR}/buildstatus" "${CONFIG_DIR}/package" "${CONFIG_DIR}/doexit" "${CONFIG_DIR}/pidttyname"
+    exit 0
+
     exit ${1:-0}
 }
 
@@ -149,6 +204,9 @@ sleep 0.5
 ## For rostui
 catkin list -u >"${CONFIG_DIR}/package"
 
+clear
+echo -n "${available_pts[@]}" >"${CONFIG_DIR}/freepts"
+
 # Menu options array
 operations=("Build all packages"
     "Build specific package"
@@ -163,6 +221,7 @@ operations=("Build all packages"
 # Menu using select
 PS3="Select the operations: "
 select operation in "${operations[@]}"; do
+
     case $REPLY in
     1)
         # Build and source the workspace
@@ -196,6 +255,7 @@ select operation in "${operations[@]}"; do
         # Source the workspace
         runinall cd "$workspace_dir"
         sows && runinall sows && runinall clear
+        message "Sourced the workspace in all terminals :)"
         ;;
     4)
         # Safety check
@@ -308,5 +368,5 @@ select operation in "${operations[@]}"; do
         roscli_exit
         ;;
     esac
-
+    pid_check
 done
