@@ -1,5 +1,9 @@
 #!/bin/bash
 
+####################################################
+####       ROS bash functions to navigate      #####
+####################################################
+
 # Finds workspaces and cd into it
 function prows() {
     cd $(find ${HOME} -maxdepth 6 -path '**/src/*' -name 'CMakeLists.txt' -type l 2>/dev/null | awk -F"/src" '{print $1}' | fzf) && test -f devel/setup.bash && source devel/setup.bash
@@ -9,6 +13,7 @@ function prows() {
 function basows() {
     catkin build -w $(catkin locate) && source $(catkin locate -d)/setup.bash
 }
+
 # sources the workspace
 function sows() {
     source "$(catkin locate -d)/setup.bash"
@@ -28,12 +33,9 @@ function set_master_uri() {
     fi
 }
 
-# Run the command in all the free pts in generated layout of terminals
-function runinall() {
-    for pts in ${available_pts[@]}; do
-        sudo ttyecho -n /dev/pts/${pts} $@
-    done
-}
+#############################################################
+####     Helper function to user associative array      #####
+#############################################################
 
 #Function to store in pid_array
 function store_pid_array() {
@@ -83,219 +85,9 @@ function fetch_process_name_array() {
     return $?
 }
 
-function message() {
-    case $1 in
-    "-a")
-        shift
-        echo -n $(echo "$@" | cat - "${CONFIG_DIR}/message") >"${CONFIG_DIR}/message"
-        ;;
-    "-w")
-        shift
-        echo -n "{$@}" >"${CONFIG_DIR}/message"
-        ;;
-    *)
-        echo -n "$@" >"${CONFIG_DIR}/message"
-        ;;
-    esac
-
-}
-
-#Function to print pid - tty - name of current processes
-function printpidttyname() {
-
-    local process_name pts
-    echo "{roslaunch process}"
-    for process_name in $(printf '%s\n' ${!process_name_array[*]} | grep -s ".*\.launch$"); do
-        pts=$(fetch_process_name_array $process_name)
-        echo "${pid_array[$pts]} - $pts - $process_name"
-    done
-
-    echo
-    echo "{rosrun process}"
-    for process_name in $(printf '%s\n' ${!process_name_array[*]} | grep -sv ".*\.launch$"); do
-        pts=$(fetch_process_name_array $process_name)
-        echo "${pid_array[$pts]} - $pts - $process_name"
-    done
-}
-
-function stopaprocess() {
-
-    local process_name
-    # Safety check
-    if ((${#pid_array[@]} == 0)); then
-        message -w "No process is running"
-        return
-    fi
-    # Selecting the process
-    case "$1" in
-    "--launch")
-        process_name=$(printf '%s\n' ${!process_name_array[*]} | grep -s ".*\.launch$" | fzf)
-        ;;
-    "--rosrun")
-        process_name=$(printf '%s\n' ${!process_name_array[*]} | grep -sv ".*\.launch$" | fzf)
-        ;;
-    esac
-
-    if [[ -n "${process_name}" ]]; then
-        pts_num=$(fetch_process_name_array "$process_name")
-    fi
-
-    if [[ -z "${process_name}" || -z "${pts_num}" ]]; then
-        message -w "Process name or pts not found"
-        return
-    fi
-
-    eval "unset \"process_name_array[$process_name]\""
-
-    # Killing the process
-    message "Killing $process_name program"
-    kill -2 $(fetch_pid_array "${pts_num}")
-    eval "unset \"pid_array[${pts_num}]\""
-    sleep 2
-    sudo ttyecho -n /dev/pts/${pts_num} "reset"
-    sleep 2
-    # Updating available pts
-    available_pts+=(${pts_num})
-    available_pts_size=${#available_pts[@]}
-    printpidttyname >"${CONFIG_DIR}/pidttyname"
-
-}
-
-function stopall() {
-
-    declare -A local pid_array_to_kill
-    local process_name pts_num
-
-    # Safety check
-    if ((${#pid_array[@]} == 0)); then
-        message -w "No process is running"
-        return
-    fi
-
-    case $1 in
-    "--launch")
-        shift
-        for process_name in $(printf '%s\n' ${!process_name_array[*]} | grep -s ".*\.launch$"); do
-            pts=$(fetch_process_name_array $process_name)
-            store_pid_array_to_kill "$pts" "${pid_array[$pts]}"
-            eval "unset \"process_name_array[$process_name]\""
-        done
-
-        ;;
-
-    "--rosrun")
-        shift
-        for process_name in $(printf '%s\n' ${!process_name_array[*]} | grep -sv ".*\.launch$"); do
-            pts=$(fetch_process_name_array $process_name)
-            store_pid_array_to_kill "$pts" "${pid_array[$pts]}"
-            eval "unset \"process_name_array[$process_name]\""
-        done
-        ;;
-
-    *) for process_name in ${!process_name_array[*]}; do
-        pts=$(fetch_process_name_array $process_name)
-        store_pid_array_to_kill "$pts" "${pid_array[$pts]}"
-        eval "unset \"process_name_array[$process_name]\""
-    done ;;
-
-    esac
-
-    # Safety check
-    if ((${#pid_array_to_kill[@]} == 0)); then
-        message -w "No process is running"
-        return
-    fi
-
-    # Killing all the process
-    kill -2 ${pid_array_to_kill[@]}
-    message 'Waiting for processes to stop'
-    sleep 5
-
-    # Updating the available pts
-    for pts_num in "${!pid_array_to_kill[*]}"; do
-        available_pts+=(${pts_num})
-        eval "unset \"pid_array[$pts_num]\""
-    done
-
-    runinall "reset"
-    sleep 2
-    available_pts_size=${#available_pts[@]}
-    printpidttyname >"${CONFIG_DIR}/pidttyname"
-    message 'Stopped all the process!'
-}
-
-function change_master_uri() {
-    local master_uri
-    read -p "Enter Master uri(if localhost press enter):" master_uri
-    set_master_uri "$master_uri"
-    runinall "source" "$HOME/.ros.bash"
-    message "master uri change to 'http://${master_uri:-"localhost"}:11311'"
-}
-
-# Check if all the process running or not
-pid_check() {
-    local pid cur_pts process_name pts_num
-    for pid in ${pid_array[@]}; do
-        if ps -p $pid >/dev/null; then
-            continue
-        fi
-        # Getting pts of the ended process
-        for cur_pts in "${!pid_array[@]}"; do
-            if [[ "${pid_array[$cur_pts]}" = "${pid}" ]]; then
-                break
-            fi
-        done
-
-        message "Process '$pid' stopped running!"
-
-        # Getting process name of the stopped process
-        for process_name in ${!process_name_array[*]}; do
-            pts_num=$(fetch_process_name_array $process_name)
-            if [[ "${pts_num}" == "${cur_pts}" ]]; then
-
-                # Unsetting the stopped process info
-                eval "unset \"process_name_array[$process_name]\""
-                eval "unset \"pid_array[${cur_pts}]\""
-                sudo ttyecho -n /dev/pts/${cur_pts} "reset"
-
-                # Updating available pts
-                available_pts+=(${cur_pts})
-                available_pts_size=${#available_pts[@]}
-                printpidttyname >"${CONFIG_DIR}/pidttyname"
-            fi
-        done
-    done
-    echo -n "${available_pts[@]}" >"${CONFIG_DIR}/freepts"
-}
-
-roscli_exit() {
-
-    # Safety check
-    pid_check
-
-    if ((${#pid_array[@]} != 0)); then
-        kill -2 ${pid_array[@]}
-        message "Waiting for processes to stop....."
-
-        # Updating the available pts
-        for pts in "${!pid_array[*]}"; do
-            pts_num=$pts
-            available_pts+=(${pts_num})
-        done
-        sleep 5
-    fi
-
-    echo -n "1" >"${CONFIG_DIR}/doexit"
-    sleep 2.1
-    runinall "exit"
-    rm -f "${CONFIG_DIR}/message" "${CONFIG_DIR}/workspace" "${CONFIG_DIR}/freepts" "${CONFIG_DIR}/buildstatus" "${CONFIG_DIR}/package" "${CONFIG_DIR}/doexit" "${CONFIG_DIR}/pidttyname"
-
-    exit ${1:-0}
-}
-
-#####################################################################
-#################### ROS FUNCTIONS START ############################
-#####################################################################
+#####################################################
+####        Functions taken from ros repo        ####
+#####################################################
 # These function are taken from below link and modified
 # https://github.com/ros/ros/blob/noetic-devel/tools/rosbash/rosbash
 function rosclised {
@@ -351,7 +143,182 @@ function roscli_list_packages {
     return 0
 }
 
-# Own functions
+#####################################################
+####     Helper function for menu functions      ####
+#####################################################
+
+# Run the command in all the free pts in generated layout of terminals
+function runinall() {
+    for pts in ${available_pts[@]}; do
+        sudo ttyecho -n /dev/pts/${pts} $@
+    done
+}
+
+# Sends message to rostui
+function message() {
+    case $1 in
+    "-a")
+        shift
+        echo -n $(echo "$@" | cat - "${CONFIG_DIR}/message") >"${CONFIG_DIR}/message"
+        ;;
+    "-w")
+        shift
+        echo -n "{$@}" >"${CONFIG_DIR}/message"
+        ;;
+    *)
+        echo -n "$@" >"${CONFIG_DIR}/message"
+        ;;
+    esac
+
+}
+
+# Function to print pid - tty - name of current processes
+function printpidttyname() {
+
+    local process_name pts
+    echo "{roslaunch process}"
+    for process_name in $(printf '%s\n' ${!process_name_array[*]} | grep -s ".*\.launch$"); do
+        pts=$(fetch_process_name_array $process_name)
+        echo "${pid_array[$pts]} - $pts - $process_name"
+    done
+
+    echo
+    echo "{rosrun process}"
+    for process_name in $(printf '%s\n' ${!process_name_array[*]} | grep -sv ".*\.launch$"); do
+        pts=$(fetch_process_name_array $process_name)
+        echo "${pid_array[$pts]} - $pts - $process_name"
+    done
+}
+
+# Check if all the process running or not
+function pid_check() {
+    local pid cur_pts process_name pts_num
+    for pid in ${pid_array[@]}; do
+        if ps -p $pid >/dev/null; then
+            continue
+        fi
+        # Getting pts of the ended process
+        for cur_pts in "${!pid_array[@]}"; do
+            if [[ "${pid_array[$cur_pts]}" = "${pid}" ]]; then
+                break
+            fi
+        done
+
+        message "Process '$pid' stopped running!"
+
+        # Getting process name of the stopped process
+        for process_name in ${!process_name_array[*]}; do
+            pts_num=$(fetch_process_name_array $process_name)
+            if [[ "${pts_num}" == "${cur_pts}" ]]; then
+
+                # Unsetting the stopped process info
+                eval "unset \"process_name_array[$process_name]\""
+                eval "unset \"pid_array[${cur_pts}]\""
+                sudo ttyecho -n /dev/pts/${cur_pts} "reset"
+
+                # Updating available pts
+                available_pts+=(${cur_pts})
+                available_pts_size=${#available_pts[@]}
+                printpidttyname >"${CONFIG_DIR}/pidttyname"
+            fi
+        done
+    done
+    echo -n "${available_pts[@]}" >"${CONFIG_DIR}/freepts"
+}
+
+# Creates require directory
+# Gets available pts
+# Change directory to workspace
+function program_init() {
+    local j pts old_pts
+    sleep 1
+    mkdir -p "${HOME}/.config/roscli"
+    CONFIG_DIR="${HOME}/.config/roscli"
+
+    # Taking the list of open pts
+    old_pts=($(ls /dev/pts))
+    terminator -l roscli
+    available_pts=($(ls /dev/pts))
+    available_pts_size=${#available_pts[@]}
+
+    # Removing the old_pts list from available_pts list
+    for pts in ${old_pts[@]}; do
+        for ((j = 0; j < available_pts_size; j++)); do
+            if [[ "${available_pts[j]}" == "$pts" ]]; then
+                unset "available_pts[j]"
+                break
+            fi
+        done
+    done
+    available_pts=("${available_pts[@]}")
+    available_pts_size=${#available_pts[@]}
+
+    # Sourcing all
+    runinall "source" "${HOME}/.ros.bash"
+
+    # going into workspace
+    cd || roscli_exit 1
+    prows
+
+    # Safety check whether workspace exist in current directory
+    if ! catkin locate >/dev/null 2>&1; then
+        echo "ERROR: No workspace found containing '$(pwd)' "
+        roscli_exit 1
+    fi
+
+    workspace_dir="$(pwd)"
+    echo -n "$workspace_dir" >"${CONFIG_DIR}/workspace"
+    echo -n "${available_pts[@]}" >"${CONFIG_DIR}/freepts"
+    catkin list -u >"${CONFIG_DIR}/package"
+    clear
+}
+
+################################################
+####         Functions used in menu        #####
+################################################
+
+# Builds all the packages in the workspace
+function buildall() {
+    # Build and source the workspace
+    if basows >/dev/null 2>&1; then
+        message "Let's go! Build success"
+        echo -n '0' >"${CONFIG_DIR}/buildstatus"
+    else
+        message -w 'Oops! Build failed'
+        echo -n '1' >"${CONFIG_DIR}/buildstatus"
+    fi
+}
+
+# Builds a single package in the workspace
+function buildapkg() {
+    local package_name
+    # Selecting the package
+    package_name="$(catkin list -u | fzf)"
+    if [[ -z "${package_name}" ]]; then
+        message -w "No package selected"
+        return
+    fi
+
+    # Building the selected package
+    catkin build $package_name 1>/dev/null 2>/dev/null && sows
+    if [[ "$?" == "0" ]]; then
+        message "Let's go! Build success"
+        echo -n '0' >"${CONFIG_DIR}/buildstatus"
+    else
+        message -w 'Oops! Build failed'
+        echo -n '1' >"${CONFIG_DIR}/buildstatus"
+    fi
+}
+
+# Source the workspaces in all terminal
+function sourcethews() {
+    # Source the workspace
+    runinall cd "$workspace_dir"
+    sows && runinall sows && runinall clear
+    message "Sourced the workspace in all terminals :)"
+}
+
+# Function to start a process i.e roslaunch or rosrun
 function startaprocess {
 
     local perm pkg file_name pts_num command_to_run separator
@@ -425,67 +392,156 @@ function startaprocess {
     printpidttyname >"${CONFIG_DIR}/pidttyname"
 }
 
-# function rosclilaunch {
+# Function to stop a single process of either roslaunch or rosrun
+function stopaprocess() {
 
-#     local perm pkg launch pts_num
-#     if [[ $(uname) == Darwin || $(uname) == FreeBSD ]]; then
-#         perm="+111"
-#     else
-#         perm="/111"
-#     fi
+    local process_name
+    # Safety check
+    if ((${#pid_array[@]} == 0)); then
+        message -w "No process is running"
+        return
+    fi
+    # Selecting the process
+    case "$1" in
+    "--launch")
+        process_name=$(printf '%s\n' ${!process_name_array[*]} | grep -s ".*\.launch$" | fzf)
+        ;;
+    "--rosrun")
+        process_name=$(printf '%s\n' ${!process_name_array[*]} | grep -sv ".*\.launch$" | fzf)
+        ;;
+    esac
 
-#     # Safety check
-#     available_pts_size=${#available_pts[@]}
-#     if ((available_pts_size < 1)); then
-#         message -w "Oops! All terminal occupied!"
-#         continue
-#     fi
-#     message ""
+    if [[ -n "${process_name}" ]]; then
+        pts_num=$(fetch_process_name_array "$process_name")
+    fi
 
-#     pts_num="${available_pts[0]}"
-#     pkg="$(roscli_list_packages | fzf)"
-#     if [[ -n "${pkg}" ]]; then
-#     fi
+    if [[ -z "${process_name}" || -z "${pts_num}" ]]; then
+        message -w "Process name or pts not found"
+        return
+    fi
 
-#     if [[ -z "${pkg}" || -z "${launch}" ]]; then
-#         return 0
-#     fi
+    eval "unset \"process_name_array[$process_name]\""
 
-#     if ! pgrep roscore >/dev/null 2>&1; then
-#         sudo ttyecho -n /dev/pts/${pts_num} "roscore" "&"
-#     fi
+    # Killing the process
+    message "Killing $process_name program"
+    kill -2 $(fetch_pid_array "${pts_num}")
+    eval "unset \"pid_array[${pts_num}]\""
+    sleep 2
+    sudo ttyecho -n /dev/pts/${pts_num} "reset"
+    sleep 2
+    # Updating available pts
+    available_pts+=(${pts_num})
+    available_pts_size=${#available_pts[@]}
+    printpidttyname >"${CONFIG_DIR}/pidttyname"
 
-#     # Running the selected launch file in available tty
-#     sudo ttyecho -n /dev/pts/${pts_num} cd "$workspace_dir"
-#     sleep 0.1
-#     sudo ttyecho -n /dev/pts/${pts_num} sows
-#     sleep 0.1
-#     sudo ttyecho -n /dev/pts/${pts_num} rosrun "${pkg}" "${launch}"
-#     store_process_name_array "${launch}" "${pts_num}"
+}
 
-#     message "Waiting 1s to make sure ${launch} launched"
-#     # Waiting to make sure program launched
-#     sleep 1
-#     pid=$(pgrep --terminal pts/${pts_num} -f "${pkg}/${launch}")
+# Function to stop all roslaunch or all rosrun or all processes
+function stopall() {
 
-#     # if not launch, then continuing
-#     if [[ -z "${pid}" ]]; then
-#         message -w "Oops! rosrun failed"
-#         continue
-#     fi
+    declare -A local pid_array_to_kill
+    local process_name pts_num command_name
 
-#     message "'rosrun ${pkg} ${launch}' is executed"
+    # Safety check
+    if ((${#pid_array[@]} == 0)); then
+        message -w "No process is running"
+        return
+    fi
 
-#     store_pid_array "${pts_num}" "${pid}"
-#     unset "available_pts[0]"
-#     available_pts=("${available_pts[@]}")
-#     available_pts_size=${#available_pts[@]}
-#     printpidttyname >"${CONFIG_DIR}/pidttyname"
-# }
+    case $1 in
+    "--launch")
+        shift
+        for process_name in $(printf '%s\n' ${!process_name_array[*]} | grep -s ".*\.launch$"); do
+            pts=$(fetch_process_name_array $process_name)
+            store_pid_array_to_kill "$pts" "${pid_array[$pts]}"
+            eval "unset \"process_name_array[$process_name]\""
+        done
+        command_name="roslaunch"
+        ;;
 
-#####################################################################
-#################### ROS FUNCTIONS END ############################
-#####################################################################
+    "--rosrun")
+        shift
+        for process_name in $(printf '%s\n' ${!process_name_array[*]} | grep -sv ".*\.launch$"); do
+            pts=$(fetch_process_name_array $process_name)
+            store_pid_array_to_kill "$pts" "${pid_array[$pts]}"
+            eval "unset \"process_name_array[$process_name]\""
+        done
+        command_name="rosrun"
+        ;;
+
+    *)
+        for process_name in ${!process_name_array[*]}; do
+            pts=$(fetch_process_name_array $process_name)
+            store_pid_array_to_kill "$pts" "${pid_array[$pts]}"
+        done
+        unset "pid_array[@]"
+        unset "process_name_array[@]"
+        ;;
+
+    esac
+
+    # Safety check
+    if ((${#pid_array_to_kill[@]} == 0)); then
+        message -w "No ${command_name} process is running"
+        return
+    fi
+
+    # Killing all the process
+    kill -2 ${pid_array_to_kill[@]}
+    message 'Waiting for processes to stop'
+    sleep 5
+
+    # Updating the available pts
+    for pts_num in "${!pid_array_to_kill[*]}"; do
+        available_pts+=(${pts_num})
+        eval "unset \"pid_array[$pts_num]\""
+    done
+
+    runinall "reset"
+    sleep 2
+    available_pts_size=${#available_pts[@]}
+    printpidttyname >"${CONFIG_DIR}/pidttyname"
+    message 'Stopped all the process!'
+}
+
+# Function to change master uri and source it to terminal
+function change_master_uri() {
+    local master_uri
+    read -p "Enter Master uri(if localhost press enter):" master_uri
+    set_master_uri "$master_uri"
+    runinall "source" "$HOME/.ros.bash"
+    message "master uri change to 'http://${master_uri:-"localhost"}:11311'"
+}
+
+# Kindof destruction of program
+function roscli_exit() {
+
+    local pts_num
+    # Safety check
+    pid_check
+
+    if ((${#pid_array[@]} != 0)); then
+        kill -2 ${pid_array[@]}
+        message "Waiting for processes to stop....."
+
+        # Updating the available pts
+        for pts_num in "${!pid_array[*]}"; do
+            available_pts+=(${pts_num})
+        done
+        sleep 5
+    fi
+
+    echo -n "1" >"${CONFIG_DIR}/doexit"
+    sleep 2.1
+    runinall "exit"
+    rm -f "${CONFIG_DIR}/message" "${CONFIG_DIR}/workspace" "${CONFIG_DIR}/freepts" "${CONFIG_DIR}/buildstatus" "${CONFIG_DIR}/package" "${CONFIG_DIR}/doexit" "${CONFIG_DIR}/pidttyname"
+
+    exit ${1:-0}
+}
+
+######################################
+####        Program start        #####
+######################################
 
 stty -echoctl # Hides ^C
 
@@ -500,48 +556,7 @@ declare -A process_name_array
 #Array to store tty and respective process id
 declare -A pid_array
 
-sleep 1.5
-mkdir -p "${HOME}/.config/roscli"
-CONFIG_DIR="${HOME}/.config/roscli"
-
-# Taking the list of open pts
-old_pts=($(ls /dev/pts))
-terminator -l roscli
-available_pts=($(ls /dev/pts))
-available_pts_size=${#available_pts[@]}
-
-# Removing the old_pts list from available_pts list
-for i in ${old_pts[@]}; do
-    for ((j = 0; j < available_pts_size; j++)); do
-        if [[ "${available_pts[j]}" == "$i" ]]; then
-            unset "available_pts[j]"
-            break
-        fi
-    done
-done
-available_pts=("${available_pts[@]}")
-available_pts_size=${#available_pts[@]}
-# Sourcing all
-runinall "source" "${HOME}/.ros.bash"
-
-# going into workspace
-cd || roscli_exit 1
-prows
-
-# Safety check whether workspace exist in current directory
-if ! catkin locate >/dev/null 2>&1; then
-    echo "ERROR: No workspace found containing '$(pwd)' "
-    roscli_exit 1
-fi
-
-workspace_dir="$(pwd)"
-echo -n "$workspace_dir" >"${CONFIG_DIR}/workspace"
-sleep 0.5
-## For rostui
-catkin list -u >"${CONFIG_DIR}/package"
-
-clear
-echo -n "${available_pts[@]}" >"${CONFIG_DIR}/freepts"
+program_init
 
 # Menu options array
 operations=("Build all packages"
@@ -565,123 +580,20 @@ select operation in "${operations[@]}"; do
     pid_check
     case $REPLY in
     1)
-        # Build and source the workspace
-        if basows >/dev/null 2>&1; then
-            message "Let's go! Build success"
-            echo -n '0' >"${CONFIG_DIR}/buildstatus"
-        else
-            message -w 'Oops! Build failed'
-            echo -n '1' >"${CONFIG_DIR}/buildstatus"
-        fi
+        buildall
         ;;
     2)
-        # Selecting the package
-        package_name="$(catkin list -u | fzf)"
-        if [[ -z "${package_name}" ]]; then
-            message -w "No package selected"
-            continue
-        fi
-
-        # Building the selected package
-        catkin build $package_name 1>/dev/null 2>/dev/null && sows
-        if [[ "$?" == "0" ]]; then
-            message "Let's go! Build success"
-            echo -n '0' >"${CONFIG_DIR}/buildstatus"
-        else
-            message -w 'Oops! Build failed'
-            echo -n '1' >"${CONFIG_DIR}/buildstatus"
-        fi
+        buildapkg
         ;;
     3)
-        # Source the workspace
-        runinall cd "$workspace_dir"
-        sows && runinall sows && runinall clear
-        message "Sourced the workspace in all terminals :)"
+        sourcethews
         ;;
     4)
         startaprocess --launch
-        # # Safety check
-        # available_pts_size=${#available_pts[@]}
-        # if ((available_pts_size < 1)); then
-        #     message -w "Oops! All terminal occupied!"
-        #     continue
-        # fi
-        # message ""
-
-        # pts_num="${available_pts[0]}"
-
-        # # Selecting package and launch file
-        # package_name=$(catkin list -u | fzf)
-        # if [[ -z "${package_name}" ]]; then
-        #     continue
-        # fi
-
-        # launchfile_path="$(find $(catkin locate $package_name) -name '*.launch' 2>/dev/null | fzf)"
-        # if [[ -z "${launchfile_path}" ]]; then
-        #     continue
-        # fi
-        # launchfile_name=$(basename "$launchfile_path")
-
-        # # Running the selected launch file in available tty
-        # sudo ttyecho -n /dev/pts/${pts_num} cd "$workspace_dir"
-        # sleep 0.1
-        # sudo ttyecho -n /dev/pts/${pts_num} sows
-        # sleep 0.1
-        # sudo ttyecho -n /dev/pts/${pts_num} roslaunch "$package_name" "$launchfile_name"
-        # store_process_name_array "${launchfile_name}" "${pts_num}"
-
-        # message "Waiting 2s to make sure ${launchfile_name} launched"
-        # # Waiting to make sure program launched
-        # sleep 2
-        # pid=$(pgrep --terminal pts/${pts_num} roslaunch)
-
-        # # if not launch, then continuing
-        # if [[ -z "${pid}" ]]; then
-        #     message -w "Oops! roslaunch failed"
-        #     continue
-        # fi
-
-        # store_pid_array "${pts_num}" "$pid"
-        # unset "available_pts[0]"
-        # available_pts=("${available_pts[@]}")
-        # available_pts_size=${#available_pts[@]}
-        # printpidttyname >"${CONFIG_DIR}/pidttyname"
         ;;
 
     5)
         stopaprocess --launch
-
-        # # Safety check
-        # if ((${#pid_array[@]} == 0)); then
-        #     message -w "No process is running"
-        #     continue
-        # fi
-
-        # # Selecting the process
-        # process_name=$(printf '%s\n' ${!process_name_array[*]} | grep -s ".*\.launch$" | fzf)
-
-        # if [[ -n "${process_name}" ]]; then
-        #     pts_num=$(fetch_process_name_array "$process_name")
-        # fi
-
-        # if [[ -z "${process_name}" || -z "${pts_num}" ]]; then
-        #     message -w "Process name or pts not found"
-        #     continue
-        # fi
-
-        # eval "unset \"process_name_array[$process_name]\""
-
-        # # Killing the process
-        # message "Killing $process_name program"
-        # kill -2 $(fetch_pid_array "${pts_num}")
-        # eval "unset \"pid_array[${pts_num}]\""
-        # sleep 2
-        # sudo ttyecho -n /dev/pts/${pts_num} "clear"
-
-        # # Updating available pts
-        # available_pts+=(${pts_num})
-        # available_pts_size=${#available_pts[@]}
-        # printpidttyname >"${CONFIG_DIR}/pidttyname"
         ;;
     6)
         stopall --launch
@@ -691,71 +603,12 @@ select operation in "${operations[@]}"; do
         ;;
     8)
         stopaprocess --rosrun
-
-        # # Safety check
-        # if ((${#pid_array[@]} == 0)); then
-        #     message -w "No process is running"
-        #     continue
-        # fi
-
-        # # Selecting the process
-        # process_name=$(printf '%s\n' ${!process_name_array[*]} | grep -sv ".*\.launch$" | fzf)
-
-        # if [[ -n "${process_name}" ]]; then
-        #     pts_num=$(fetch_process_name_array "$process_name")
-        # fi
-
-        # if [[ -z "${process_name}" || -z "${pts_num}" ]]; then
-        #     message -w "Process name or pts not found"
-        #     continue
-        # fi
-
-        # eval "unset \"process_name_array[$process_name]\""
-
-        # # Killing the process
-        # message "Killing $process_name program"
-        # kill -2 $(fetch_pid_array "${pts_num}")
-        # eval "unset \"pid_array[${pts_num}]\""
-        # sleep 2
-        # sudo ttyecho -n /dev/pts/${pts_num} "clear"
-
-        # # Updating available pts
-        # available_pts+=(${pts_num})
-        # available_pts_size=${#available_pts[@]}
-        # printpidttyname >"${CONFIG_DIR}/pidttyname"
         ;;
     9)
         stopall --rosrun
         ;;
     10)
         stopall
-
-        #### Old version #####
-        # # Safety check
-        # if ((${#pid_array[@]} == 0)); then
-        #     message -w 'No process is running'
-        #     continue
-        # fi
-
-        # # Killing all the process
-        # kill -2 ${pid_array[@]}
-        # message 'Waiting for processes to stop'
-        # sleep 5
-
-        # # Updating the available pts
-        # for pts_num in "${!pid_array[*]}"; do
-        #     available_pts+=(${pts_num})
-        # done
-
-        # runinall "clear"
-
-        # # Unsetting array and updating available pts
-        # unset "pid_array[@]"
-        # unset "process_name_array[@]"
-        # available_pts_size=${#available_pts[@]}
-        # printpidttyname >"${CONFIG_DIR}/pidttyname"
-        # message 'Stopped all the process!'
-        ########################################
         ;;
     11)
         change_master_uri
