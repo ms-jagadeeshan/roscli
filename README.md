@@ -33,8 +33,8 @@ To run the program `make run`
 
 ## Todo
 
-- [ ] roslaunch file from /opt/ros/${ROS_DISTRO}
-- [ ] rosrun support
+- [x] roslaunch file from /opt/ros/${ROS_DISTRO}
+- [x] rosrun support
 - [ ] Better Makefile
 - [ ] Multiple window layouts
 - [ ] Better pid check

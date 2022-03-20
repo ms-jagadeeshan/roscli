@@ -9,6 +9,8 @@ int2b4() {
     echo -n "$out"
 }
 
+terminator_conf_path="${HOME}/.config/terminator/config"
+selectedlayout_path="${HOME}/.config/roscli/selectedlayout"
 layout_code=(0 2 1 33 9 18 6 642 321 578 530 641 322 385 386)
 
 ./layout-selector
@@ -20,16 +22,16 @@ fi
 ((layout_index--))
 
 args="$(int2b4 ${layout_code[$layout_index]} | sed 's/./& /g')"
-./terminator-layout-generator $args | tee selectedlayout
+./terminator-layout-generator $args >"${selectedlayout_path}"
 
-sleep 1
-sed -z 's/\[\[roscli[^(]*roscli//g' "${HOME}/.config/terminator/config" | tee ~/.config/terminator/config
-sleep 1
-if [ -s ~/.config/terminator/config ]; then
-    sed -e '/layouts/r selectedlayout' "${HOME}/.config/terminator/config" | tee ~/.config/terminator/config
+sed -z 's/\[\[roscli[^(]*roscli//g' "${terminator_conf_path}" >"${terminator_conf_path}"
+
+if [ -s "${terminator_conf_path}" ]; then
+    sed -e "/layouts/r ${selectedlayout_path}" "${terminator_conf_path}" >"${terminator_conf_path}"
 else
-    echo "[layouts]" >~/.config/terminator/config
-    tee --append ~/.config/terminator/config <selectedlayout
+    echo "[layouts]" >"${terminator_conf_path}"
+    cat "${selectedlayout_path}" >>"${terminator_conf_path}"
+    # tee --append "${terminator}" <"${selectedlayout_path}"
 fi
 sleep 0.5
 xdotool key Alt_L+l && sleep 0.5

@@ -211,6 +211,7 @@ void buildstatus(WINDOW *win, char fname[])
 
     c = fgetc(fptr);
 
+    wattron(win,A_BOLD);
     while (c != EOF && c != '\n')
     {
         if (c == '0')
@@ -227,6 +228,7 @@ void buildstatus(WINDOW *win, char fname[])
         }
         c = fgetc(fptr);
     }
+    wattroff(win,A_BOLD);
     fclose(fptr);
 }
 
@@ -257,11 +259,27 @@ void message(WINDOW *win, char fname[])
     wattron(win, COLOR_PAIR(4));
     while (c != EOF && c != '\n')
     {
+        if (c == '{')
+        {
+            wattroff(win, COLOR_PAIR(4));
+            wattron(win, COLOR_PAIR(1));
+            c = fgetc(fptr);
+            continue;
+        }
+        if (c == '}')
+        {
+            wattroff(win, COLOR_PAIR(1));
+            wattron(win, COLOR_PAIR(4));
+            c = fgetc(fptr);
+            continue;
+        }
+
         if (x >= (COLS - 5) / 2)
         {
             y++;
             x = 1;
         }
+
         if (y < 3)
         {
             mvwaddch(win, y, x++, c);
@@ -362,12 +380,12 @@ void pidttyname(WINDOW *win, char fname[])
 
 void freepts(WINDOW *win, char fname[])
 {
-    int c, y = LINES -9, x = 1;
+    int c, y = LINES - 9, x = 1;
 
     char msg[] = "Freepts: ";
 
     wattron(win, COLOR_PAIR(3));
-    mvwprintw(win,y, 1, msg);
+    mvwprintw(win, y, 1, msg);
     wattroff(win, COLOR_PAIR(3));
 
     if (access(fname, F_OK) != 0)

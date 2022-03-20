@@ -47,7 +47,7 @@ $(BIN)/% : $(SRC)/%.c
 
 .PHONY : install build help run clean uninstall
 
-run: $(BIN)/$(TARGET)
+run: $(BIN)/$(TARGET) build
 	@echo "$(YELLOW)Running...$(NC)"
 	cd $(BIN) && ./$(TARGET)
 
