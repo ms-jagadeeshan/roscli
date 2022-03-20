@@ -8,6 +8,7 @@ Awesome tool written in C,C++,Bash to make roslaunch more elegant
 - [tmux](https://github.com/tmux/tmux) — A terminal multiplexer
 - [fzf](https://github.com/junegunn/fzf) - A command-line fuzzy finder
 - [ncurses]
+- [catkin]
 
 ```sh
 sudo apt-get install terminator tmux libncurses5-dev
@@ -36,3 +37,5 @@ To run the program `make run`
 - [ ] rosrun support
 - [ ] Better Makefile
 - [ ] Multiple window layouts
+- [ ] Better pid check
+- [ ] Better workspace switching
