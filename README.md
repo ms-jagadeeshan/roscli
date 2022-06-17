@@ -7,7 +7,7 @@ Awesome tool written in C,C++,Bash to make roslaunch more elegant
 - [Terminator](https://github.com/gnome-terminator/terminator) - Multiple GNOME terminals in one window
 - [tmux](https://github.com/tmux/tmux) — A terminal multiplexer
 - [fzf](https://github.com/junegunn/fzf) - A command-line fuzzy finder
-- [ncurses]
+- [ncurses] `libncurses-dev`
 - [catkin]
 
 ```sh
